@@ -180,6 +180,7 @@ class FileSource(StrEnum):
     OUTLOOK = "outlook"
     SALESFORCE = "salesforce"
     AZURE_BLOB = "azure_blob"
+    ZOTERO = "zotero"
 
 
 class PipelineTaskType(StrEnum):

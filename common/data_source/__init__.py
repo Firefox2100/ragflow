@@ -70,6 +70,7 @@ from .teams_connector import TeamsConnector
 from .webdav_connector import WebDAVConnector
 from .xquik_connector import XquikConnector
 from .zendesk_connector import ZendeskConnector
+from .zotero_connector import ZoteroConnector
 
 CONNECTOR_BY_SOURCE: dict[str, type] = {
     FileSource.S3: BlobStorageConnector,
@@ -111,6 +112,7 @@ CONNECTOR_BY_SOURCE: dict[str, type] = {
     FileSource.OUTLOOK: OutlookConnector,
     FileSource.SALESFORCE: SalesforceConnector,
     FileSource.AZURE_BLOB: AzureBlobConnector,
+    FileSource.ZOTERO: ZoteroConnector,
 }
 
 
@@ -173,5 +175,6 @@ __all__ = [
     "WebDAVConnector",
     "XquikConnector",
     "ZendeskConnector",
+    "ZoteroConnector",
     "build_connector_for_source",
 ]

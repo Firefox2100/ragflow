@@ -81,6 +81,7 @@ class DocumentSource(str, Enum):
     SALESFORCE = "salesforce"
     AZURE_BLOB = "azure_blob"
     AZURE_DEVOPS = "azure_devops"
+    ZOTERO = "zotero"
 
 
 class FileOrigin(str, Enum):
@@ -247,6 +248,15 @@ ASANA_CONNECTOR_SIZE_THRESHOLD = int(os.environ.get("ASANA_CONNECTOR_SIZE_THRESH
 IMAP_CONNECTOR_SIZE_THRESHOLD = int(os.environ.get("IMAP_CONNECTOR_SIZE_THRESHOLD", 10 * 1024 * 1024))
 
 ZENDESK_CONNECTOR_SKIP_ARTICLE_LABELS = os.environ.get("ZENDESK_CONNECTOR_SKIP_ARTICLE_LABELS", "").split(",")
+
+#####
+# Zotero Connector Configs
+#####
+
+ZOTERO_API_BASE_URL = os.environ.get("ZOTERO_API_BASE_URL", "https://api.zotero.org")
+
+# Attachments exceeding this size will not be retrieved (in bytes)
+ZOTERO_CONNECTOR_ATTACHMENT_SIZE_THRESHOLD = int(os.environ.get("ZOTERO_CONNECTOR_ATTACHMENT_SIZE_THRESHOLD", 50 * 1024 * 1024))
 
 _USER_NOT_FOUND = "Unknown Confluence User"
 
