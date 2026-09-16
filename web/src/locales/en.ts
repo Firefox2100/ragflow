@@ -1493,6 +1493,9 @@ This auto-tagging feature enhances retrieval by adding another layer of domain-s
       dataSourceIncludeMergeRequests: 'Include Merge Requests',
       dataSourceIncludeIssues: 'Include Issues',
       dataSourceIncludeCodeFiles: 'Include Code Files',
+      dataSourceFieldLibraryType: 'Library Type',
+      dataSourceFieldZoteroApiKey: 'Zotero API Key',
+      dataSourceFieldAttachmentStorage: 'Attachment Storage',
       // Data source form options
       dataSourceOptionAccountKey: 'Account Key',
       dataSourceOptionConnectionString: 'Connection String',
@@ -1522,6 +1525,10 @@ This auto-tagging feature enhances retrieval by adding another layer of domain-s
       dataSourceOptionRepositories: 'Repositories',
       dataSourceOptionProjects: 'Projects',
       dataSourceOptionWorkspace: 'Workspace',
+      dataSourceOptionPersonalLibrary: 'Personal Library',
+      dataSourceOptionGroupLibrary: 'Group Library',
+      dataSourceOptionZoteroStorage: 'Zotero Storage',
+      dataSourceOptionWebdav: 'WebDAV',
       // Data source validation messages
       dataSourceValidationFieldRequired: '{{label}} is required',
       dataSourceValidationMinOne: '{{label}} must be at least 1',
@@ -1919,6 +1926,16 @@ Example: Virtual Hosted Style`,
         'Username is required when Auth Type is Basic Auth.',
       restApiValidationBasicPasswordRequired:
         'Password is required when Auth Type is Basic Auth.',
+      zoteroDescription:
+        'Sync PDF attachments from a Zotero personal or group library, stored either in Zotero storage or on a WebDAV server.',
+      zoteroLibraryIdTip:
+        'User ID (personal library) or Group ID (group library). Find it on the Zotero API Keys page or in the group settings URL.',
+      zoteroApiKeyTip:
+        'Create a key with read access to the library at zotero.org/settings/keys.',
+      zoteroAttachmentStorageTip:
+        'Where Zotero stores attachment files: its own cloud storage, or a WebDAV server you configured in Zotero for file syncing.',
+      zoteroWebdavPrefixTip:
+        'Sub-directory on the WebDAV server Zotero syncs attachments into. Defaults to "zotero".',
       restApiTestConnection: 'Test connection',
       restApiTestSuccess: 'REST API connector validated successfully.',
       restApiTestFailed:

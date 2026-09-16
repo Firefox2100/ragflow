@@ -18,7 +18,7 @@ import { FormFieldType } from '@/components/dynamic-form';
 import { IconFontFill } from '@/components/icon-font';
 import SvgIcon from '@/components/svg-icon';
 import { TFunction } from 'i18next';
-import { BookOpen, Globe, Mail, Rss, Search } from 'lucide-react';
+import { BookOpen, Globe, Library, Mail, Rss, Search } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import BoxTokenField from '../component/box-token-field';
@@ -77,6 +77,7 @@ export enum DataSourceKey {
   TEAMS = 'teams',
   SLACK = 'slack',
   SHAREPOINT = 'sharepoint',
+  ZOTERO = 'zotero',
 }
 
 type DataSourceFeatureVisibility = {
@@ -194,6 +195,9 @@ export const DataSourceFeatureVisibilityMap: Partial<
     syncDeletedFiles: true,
   },
   [DataSourceKey.BIGQUERY]: {
+    syncDeletedFiles: true,
+  },
+  [DataSourceKey.ZOTERO]: {
     syncDeletedFiles: true,
   },
 };
@@ -413,6 +417,11 @@ export const generateDataSourceInfo = (t: TFunction) => {
       name: 'Azure Blob Storage',
       description: t(`setting.${DataSourceKey.AZURE_BLOB}Description`),
       icon: <SvgIcon name={'data-source/azure-blob'} width={38} />,
+    },
+    [DataSourceKey.ZOTERO]: {
+      name: 'Zotero',
+      description: t(`setting.${DataSourceKey.ZOTERO}Description`),
+      icon: <Library className="text-text-primary" size={22} />,
     },
   };
 };
@@ -2102,6 +2111,108 @@ const generateDataSourceFormFields = (t: TFunction) => ({
         !!values?.config?.show_advanced && values?.config?.method === 'POST',
     },
   ],
+  [DataSourceKey.ZOTERO]: [
+    {
+      label: t('setting.dataSourceFieldLibraryType'),
+      name: 'config.library_type',
+      type: FormFieldType.Segmented,
+      defaultValue: 'user',
+      options: [
+        {
+          label: t('setting.dataSourceOptionPersonalLibrary'),
+          value: 'user',
+        },
+        { label: t('setting.dataSourceOptionGroupLibrary'), value: 'group' },
+      ],
+    },
+    {
+      label: t('setting.dataSourceFieldLibraryId'),
+      name: 'config.library_id',
+      type: FormFieldType.Text,
+      required: true,
+      tooltip: t('setting.zoteroLibraryIdTip'),
+    },
+    {
+      label: t('setting.dataSourceFieldZoteroApiKey'),
+      name: 'config.credentials.zotero_api_key',
+      type: FormFieldType.Password,
+      required: true,
+      tooltip: t('setting.zoteroApiKeyTip'),
+    },
+    {
+      label: t('setting.dataSourceFieldAttachmentStorage'),
+      name: 'config.attachment_storage',
+      type: FormFieldType.Segmented,
+      defaultValue: 'zotero',
+      tooltip: t('setting.zoteroAttachmentStorageTip'),
+      options: [
+        { label: t('setting.dataSourceOptionZoteroStorage'), value: 'zotero' },
+        { label: t('setting.dataSourceOptionWebdav'), value: 'webdav' },
+      ],
+    },
+    {
+      label: t('setting.dataSourceFieldWebdavServerUrl'),
+      name: 'config.webdav_url',
+      type: FormFieldType.Text,
+      placeholder: 'https://webdav.example.com',
+      shouldRender: (values: any) =>
+        values?.config?.attachment_storage === 'webdav',
+      customValidate: (val: string, values: any) =>
+        values?.config?.attachment_storage === 'webdav' && !(val ?? '').trim()
+          ? t('setting.dataSourceValidationFieldRequired', {
+              label: t('setting.dataSourceFieldWebdavServerUrl'),
+            })
+          : true,
+    },
+    {
+      label: t('setting.dataSourceFieldUsername'),
+      name: 'config.credentials.webdav_username',
+      type: FormFieldType.Text,
+      shouldRender: (values: any) =>
+        values?.config?.attachment_storage === 'webdav',
+      customValidate: (val: string, values: any) =>
+        values?.config?.attachment_storage === 'webdav' && !(val ?? '').trim()
+          ? t('setting.dataSourceValidationFieldRequired', {
+              label: t('setting.dataSourceFieldUsername'),
+            })
+          : true,
+    },
+    {
+      label: t('setting.dataSourceFieldPassword'),
+      name: 'config.credentials.webdav_password',
+      type: FormFieldType.Password,
+      shouldRender: (values: any) =>
+        values?.config?.attachment_storage === 'webdav',
+      customValidate: (val: string, values: any) =>
+        values?.config?.attachment_storage === 'webdav' && !val
+          ? t('setting.dataSourceValidationFieldRequired', {
+              label: t('setting.dataSourceFieldPassword'),
+            })
+          : true,
+    },
+    {
+      label: t('setting.dataSourceFieldRemotePath'),
+      name: 'config.webdav_prefix',
+      type: FormFieldType.Text,
+      required: false,
+      placeholder: 'zotero',
+      tooltip: t('setting.zoteroWebdavPrefixTip'),
+      shouldRender: (values: any) =>
+        values?.config?.attachment_storage === 'webdav',
+    },
+    {
+      label: t('setting.dataSourceFieldBatchSize'),
+      name: 'config.batch_size',
+      type: FormFieldType.Number,
+      required: false,
+      validation: {
+        min: 1,
+        message: t('setting.dataSourceValidationMinOne', {
+          label: t('setting.dataSourceFieldBatchSize'),
+        }),
+      },
+    },
+  ],
 });
 
 export const DataSourceFormDefaultValues = {
@@ -2638,6 +2749,23 @@ export const DataSourceFormDefaultValues = {
         token: '',
         username: '',
         password: '',
+      },
+    },
+  },
+  [DataSourceKey.ZOTERO]: {
+    name: '',
+    source: DataSourceKey.ZOTERO,
+    config: {
+      library_type: 'user',
+      library_id: '',
+      attachment_storage: 'zotero',
+      webdav_url: '',
+      webdav_prefix: 'zotero',
+      batch_size: 2,
+      credentials: {
+        zotero_api_key: '',
+        webdav_username: '',
+        webdav_password: '',
       },
     },
   },

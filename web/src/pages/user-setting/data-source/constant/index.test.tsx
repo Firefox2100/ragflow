@@ -14,14 +14,19 @@
  *  limitations under the License.
  */
 
+(globalThis as any).CSS = {
+  ...(globalThis as any).CSS,
+  supports: () => false,
+};
+
 import type { TFunction } from 'i18next';
-import { FormFieldType } from '@/components/dynamic-form';
-import {
+const { FormFieldType } = require('@/components/dynamic-form');
+const {
   DataSourceFormDefaultValues,
   DataSourceKey,
   generateDataSourceInfo,
   getDataSourceFieldsWithExtras,
-} from './index';
+} = require('./index');
 
 const translate = ((key: string) => key) as TFunction;
 
@@ -117,5 +122,59 @@ describe('Sitemap data source', () => {
       restrict?.shouldRender?.({ config: { follow_pdf_links: true } }),
     ).toBe(true);
     expect(batchSize?.validation?.min).toBe(1);
+  });
+});
+
+describe('Zotero data source', () => {
+  it('registers its catalog entry and defaults', () => {
+    const info = generateDataSourceInfo(translate)[DataSourceKey.ZOTERO];
+    const defaults = DataSourceFormDefaultValues[DataSourceKey.ZOTERO];
+
+    expect(info.name).toBe('Zotero');
+    expect(info.description).toBe('setting.zoteroDescription');
+    expect(defaults).toEqual({
+      name: '',
+      source: 'zotero',
+      config: {
+        library_type: 'user',
+        library_id: '',
+        attachment_storage: 'zotero',
+        webdav_url: '',
+        webdav_prefix: 'zotero',
+        batch_size: 2,
+        credentials: {
+          zotero_api_key: '',
+          webdav_username: '',
+          webdav_password: '',
+        },
+      },
+    });
+  });
+
+  it('only requires the WebDAV fields when attachment storage is webdav', () => {
+    const fields = getDataSourceFieldsWithExtras(
+      translate,
+      DataSourceKey.ZOTERO,
+    ) as Array<{
+      name: string;
+      shouldRender?: (values: any) => boolean;
+      customValidate?: (val: any, values: any) => string | true;
+    }>;
+    const webdavUrl = fields.find((f) => f.name === 'config.webdav_url');
+    const webdavUsername = fields.find(
+      (f) => f.name === 'config.credentials.webdav_username',
+    );
+
+    const zoteroStorage = { config: { attachment_storage: 'zotero' } };
+    const webdavStorage = { config: { attachment_storage: 'webdav' } };
+
+    expect(webdavUrl?.shouldRender?.(zoteroStorage)).toBe(false);
+    expect(webdavUrl?.shouldRender?.(webdavStorage)).toBe(true);
+    expect(webdavUrl?.customValidate?.('', zoteroStorage)).toBe(true);
+    expect(webdavUrl?.customValidate?.('', webdavStorage)).not.toBe(true);
+    expect(
+      webdavUrl?.customValidate?.('https://dav.example.com', webdavStorage),
+    ).toBe(true);
+    expect(webdavUsername?.customValidate?.('', webdavStorage)).not.toBe(true);
   });
 });
