@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
 from common.data_source.exceptions import (
     ConnectorMissingCredentialError,
@@ -286,6 +287,25 @@ def test_load_from_checkpoint_filters_by_time_window():
 
 
 @pytest.mark.p1
+def test_load_from_checkpoint_excludes_item_exactly_at_cursor():
+    """A strict '<' would re-yield the item that set the cursor forever, pinning
+    poll_range_start and looping the same doc on every incremental sync."""
+    connector = ZoteroConnector(library_type="user", library_id="1")
+    connector.api_key = "abc123"
+
+    boundary_item = _pdf_item("BOUNDARY", date_modified="2026-06-01T00:00:00Z")
+
+    with patch("common.data_source.zotero_connector.request_with_retries", return_value=_items_response([boundary_item])):
+        checkpoint = connector.build_dummy_checkpoint()
+        import datetime as dt
+
+        start = dt.datetime(2026, 6, 1, tzinfo=dt.UTC).timestamp()
+        docs, _ = _drain(connector.load_from_checkpoint(start, 0, checkpoint))
+
+    assert docs == []
+
+
+@pytest.mark.p1
 def test_load_from_checkpoint_raises_on_listing_error():
     """A listing failure must propagate so the sync task fails loudly."""
     connector = ZoteroConnector(library_type="user", library_id="1")
@@ -319,15 +339,23 @@ def test_load_from_checkpoint_yields_failure_on_attachment_fetch_error():
 # ---------------------------------------------------------------------------
 
 
+def _storage_response(status_code=200, headers=None, iter_content=None):
+    resp = MagicMock()
+    resp.status_code = status_code
+    resp.headers = headers or {}
+    if iter_content is not None:
+        resp.iter_content.return_value = iter_content
+    return resp
+
+
 @pytest.mark.p2
 def test_fetch_zotero_storage_rejects_oversized_content_length():
     connector = ZoteroConnector(library_type="user", library_id="1")
     connector.api_key = "abc123"
 
-    resp = MagicMock()
-    resp.headers = {"Content-Length": str(10**9)}
+    resp = _storage_response(headers={"Content-Length": str(10**9)})
 
-    with patch("common.data_source.zotero_connector.request_with_retries", return_value=resp), pytest.raises(ConnectorValidationError, match="size threshold"):
+    with patch("common.data_source.zotero_connector.requests.get", return_value=resp), pytest.raises(ConnectorValidationError, match="size threshold"):
         connector._fetch_attachment_zotero_storage("KEY1", expected_md5=None)
 
 
@@ -336,11 +364,9 @@ def test_fetch_zotero_storage_rejects_checksum_mismatch():
     connector = ZoteroConnector(library_type="user", library_id="1")
     connector.api_key = "abc123"
 
-    resp = MagicMock()
-    resp.headers = {"ETag": '"deadbeef"'}
-    resp.iter_content.return_value = [b"hello"]
+    resp = _storage_response(headers={"ETag": '"deadbeef"'}, iter_content=[b"hello"])
 
-    with patch("common.data_source.zotero_connector.request_with_retries", return_value=resp), pytest.raises(ConnectorValidationError, match="checksum"):
+    with patch("common.data_source.zotero_connector.requests.get", return_value=resp), pytest.raises(ConnectorValidationError, match="checksum"):
         connector._fetch_attachment_zotero_storage("KEY1", expected_md5="notdeadbeef")
 
 
@@ -349,14 +375,43 @@ def test_fetch_zotero_storage_returns_bytes_on_matching_checksum():
     connector = ZoteroConnector(library_type="user", library_id="1")
     connector.api_key = "abc123"
 
-    resp = MagicMock()
-    resp.headers = {"ETag": '"abc"'}
-    resp.iter_content.return_value = [b"hel", b"lo"]
+    resp = _storage_response(headers={"ETag": '"abc"'}, iter_content=[b"hel", b"lo"])
 
-    with patch("common.data_source.zotero_connector.request_with_retries", return_value=resp):
+    with patch("common.data_source.zotero_connector.requests.get", return_value=resp):
         blob = connector._fetch_attachment_zotero_storage("KEY1", expected_md5="abc")
 
     assert blob == b"hello"
+
+
+@pytest.mark.p1
+def test_fetch_zotero_storage_404_fails_fast_without_retrying():
+    """A 404 is permanent and must not burn through the retry budget."""
+    connector = ZoteroConnector(library_type="user", library_id="1")
+    connector.api_key = "abc123"
+
+    resp = _storage_response(status_code=404)
+
+    with patch("common.data_source.zotero_connector.requests.get", return_value=resp) as mock_get, pytest.raises(ConnectorValidationError, match="404"):
+        connector._fetch_attachment_zotero_storage("KEY1", expected_md5=None)
+
+    assert mock_get.call_count == 1
+
+
+@pytest.mark.p1
+def test_fetch_zotero_storage_retries_transient_failure():
+    connector = ZoteroConnector(library_type="user", library_id="1")
+    connector.api_key = "abc123"
+
+    ok_resp = _storage_response(headers={"ETag": '"abc"'}, iter_content=[b"data"])
+
+    with patch(
+        "common.data_source.zotero_connector.requests.get",
+        side_effect=[requests.exceptions.ConnectionError("boom"), ok_resp],
+    ) as mock_get:
+        blob = connector._fetch_attachment_zotero_storage("KEY1", expected_md5="abc")
+
+    assert blob == b"data"
+    assert mock_get.call_count == 2
 
 
 # ---------------------------------------------------------------------------
@@ -414,6 +469,35 @@ def test_fetch_attachment_webdav_requires_credentials():
     connector = ZoteroConnector(library_type="user", library_id="1", attachment_storage="webdav", webdav_url="https://dav.example.com")
     with pytest.raises(ZoteroCredentialsNotSetUpError):
         connector._fetch_attachment_webdav("KEY1")
+
+
+@pytest.mark.p1
+def test_fetch_attachment_webdav_retries_transient_failure_with_fresh_buffer():
+    """A failed attempt must not leave partial bytes for the retry to append to."""
+    import io
+    import zipfile
+
+    connector = ZoteroConnector(library_type="user", library_id="1", attachment_storage="webdav", webdav_url="https://dav.example.com")
+    connector.api_key = "abc123"
+    connector._webdav_client = MagicMock()
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("paper.pdf", b"%PDF-1.4 content")
+    zip_bytes = buf.getvalue()
+
+    def _fail_then_succeed(_path, out_buffer):
+        if connector._webdav_client.download_fileobj.call_count == 1:
+            out_buffer.write(b"partial-garbage")
+            raise requests.exceptions.ConnectionError("boom")
+        out_buffer.write(zip_bytes)
+
+    connector._webdav_client.download_fileobj.side_effect = _fail_then_succeed
+
+    blob = connector._fetch_attachment_webdav("KEY1")
+
+    assert blob == b"%PDF-1.4 content"
+    assert connector._webdav_client.download_fileobj.call_count == 2
 
 
 # ---------------------------------------------------------------------------

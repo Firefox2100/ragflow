@@ -7,10 +7,11 @@ from io import BytesIO
 from typing import Any
 
 import requests
+from pydantic import ValidationError
 from webdav4.client import Client as WebDAVClient
 
 from common.data_source.config import DOWNLOAD_CHUNK_SIZE, INDEX_BATCH_SIZE, REQUEST_TIMEOUT_SECONDS, ZOTERO_API_BASE_URL, ZOTERO_CONNECTOR_ATTACHMENT_SIZE_THRESHOLD, DocumentSource
-from common.data_source.cross_connector_utils.retry_wrapper import request_with_retries
+from common.data_source.cross_connector_utils.retry_wrapper import request_with_retries, retry_builder
 from common.data_source.exceptions import (
     ConnectorMissingCredentialError,
     ConnectorValidationError,
@@ -32,6 +33,10 @@ _SLIM_BATCH_SIZE = 1000
 class ZoteroCredentialsNotSetUpError(PermissionError):
     def __init__(self) -> None:
         super().__init__("Zotero credentials are not set up, was load_credentials called?")
+
+
+class _RetryableZoteroError(Exception):
+    """Transient attachment-fetch failure worth retrying."""
 
 
 def _parse_zotero_datetime(value: str | None) -> datetime | None:
@@ -176,7 +181,7 @@ class ZoteroConnector(SlimConnectorWithPermSync, CheckpointedConnector[ZoteroChe
     def validate_checkpoint_json(self, checkpoint_json: str) -> ZoteroCheckpoint:
         try:
             return ZoteroCheckpoint.model_validate_json(checkpoint_json)
-        except Exception:
+        except ValidationError:
             return self.build_dummy_checkpoint()
 
     # ------------------------------------------------------------------
@@ -230,7 +235,9 @@ class ZoteroConnector(SlimConnectorWithPermSync, CheckpointedConnector[ZoteroChe
             modified_at = _parse_zotero_datetime(data.get("dateModified"))
             if modified_at is not None:
                 ts = modified_at.timestamp()
-                if start and ts < start:
+                # <=, not <: the item exactly at the cursor was already
+                # captured by the run that set that cursor as its max.
+                if start and ts <= start:
                     continue
                 if end and ts > end:
                     continue
@@ -287,13 +294,27 @@ class ZoteroConnector(SlimConnectorWithPermSync, CheckpointedConnector[ZoteroChe
     # Attachment byte fetch
     # ------------------------------------------------------------------
 
+    @retry_builder(tries=8, delay=1, backoff=2, exceptions=(_RetryableZoteroError,))
+    def _get_zotero_storage_response(self, key: str) -> requests.Response:
+        # 404 is permanent (no file in Zotero storage); only transient failures retry.
+        try:
+            resp = requests.get(
+                f"{ZOTERO_API_BASE_URL}/{self._library_path}/items/{key}/file",
+                headers=self._headers(),
+                timeout=REQUEST_TIMEOUT_SECONDS,
+                stream=True,
+            )
+        except requests.RequestException as e:
+            raise _RetryableZoteroError(str(e)) from e
+        if resp.status_code == 404:
+            raise ConnectorValidationError(f"Attachment {key} has no file in Zotero storage (404). If this library syncs attachments via WebDAV, use WebDAV as the attachment storage instead.")
+        if resp.status_code == 429 or resp.status_code >= 500:
+            raise _RetryableZoteroError(f"HTTP {resp.status_code}")
+        resp.raise_for_status()
+        return resp
+
     def _fetch_attachment_zotero_storage(self, key: str, expected_md5: str | None) -> bytes:
-        resp = request_with_retries(
-            "GET",
-            f"{ZOTERO_API_BASE_URL}/{self._library_path}/items/{key}/file",
-            headers=self._headers(),
-            stream=True,
-        )
+        resp = self._get_zotero_storage_response(key)
         content_length = resp.headers.get("Content-Length")
         if content_length and int(content_length) > ZOTERO_CONNECTOR_ATTACHMENT_SIZE_THRESHOLD:
             raise ConnectorValidationError(f"Attachment {key} ({content_length} bytes) exceeds the configured size threshold.")
@@ -320,8 +341,7 @@ class ZoteroConnector(SlimConnectorWithPermSync, CheckpointedConnector[ZoteroChe
             raise ZoteroCredentialsNotSetUpError()
 
         remote_path = f"{self.webdav_prefix}/{key}.zip" if self.webdav_prefix else f"{key}.zip"
-        buffer = BytesIO()
-        self._webdav_client.download_fileobj(remote_path, buffer)
+        buffer = self._download_webdav(remote_path)
         buffer.seek(0)
 
         with zipfile.ZipFile(buffer) as archive:
@@ -333,6 +353,13 @@ class ZoteroConnector(SlimConnectorWithPermSync, CheckpointedConnector[ZoteroChe
                 raise ConnectorValidationError(f"Attachment {key} ({member.file_size} bytes) exceeds the configured size threshold.")
             with archive.open(member) as member_file:
                 return member_file.read()
+
+    @retry_builder(tries=8, delay=1, backoff=2)
+    def _download_webdav(self, remote_path: str) -> BytesIO:
+        # Fresh buffer per attempt so a failed retry doesn't leave stale bytes.
+        buffer = BytesIO()
+        self._webdav_client.download_fileobj(remote_path, buffer)
+        return buffer
 
     # ------------------------------------------------------------------
     # Prune support

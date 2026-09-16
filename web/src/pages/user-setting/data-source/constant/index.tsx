@@ -18,7 +18,7 @@ import { FormFieldType } from '@/components/dynamic-form';
 import { IconFontFill } from '@/components/icon-font';
 import SvgIcon from '@/components/svg-icon';
 import { TFunction } from 'i18next';
-import { BookOpen, Globe, Library, Mail, Rss, Search } from 'lucide-react';
+import { BookOpen, Globe, Mail, Rss, Search } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import BoxTokenField from '../component/box-token-field';
@@ -421,7 +421,7 @@ export const generateDataSourceInfo = (t: TFunction) => {
     [DataSourceKey.ZOTERO]: {
       name: 'Zotero',
       description: t(`setting.${DataSourceKey.ZOTERO}Description`),
-      icon: <Library className="text-text-primary" size={22} />,
+      icon: <SvgIcon name={'data-source/zotero'} width={38} />,
     },
   };
 };
