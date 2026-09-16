@@ -751,3 +751,25 @@ The Sitemap data source is used to synchronize the web pages listed in a public 
 Every request goes through the SSRF guard with the resolved address pinned for the duration of the request, response bodies are capped at 64 MB, and at most 1000 sitemap documents are fetched per sync (each sitemap URL once). HTML pages are converted to Markdown with the same boilerplate removal as the other web connectors (`WEB_CONNECTOR_IGNORED_ELEMENTS`: navigation, footer, aside, scripts and styles by default) and stored as `.md` documents. URLs served with `Content-Type: application/pdf` are stored as `.pdf` documents and processed by the regular PDF pipeline. Each document keeps the page URL, the sitemap URL, and, for discovered PDFs, the parent page URL in its metadata.
 
 Incremental syncs rely on the `<lastmod>` element: only pages whose `lastmod` falls inside the sync window are fetched again, and pages without `lastmod` are only fetched by a full sync. Every document also carries a content fingerprint, so a page that is fetched again but has not changed is skipped instead of being re-indexed.
+
+## Zotero
+
+The Zotero data source is used to synchronize PDF attachments from a Zotero personal or group library to a RAGFlow knowledge base. Only attachments with content type `application/pdf` are indexed; other attachments (web page snapshots, notes, etc.) are skipped.
+
+**Permission requirements**: A Zotero API key with read access to the target library. When attachment storage is WebDAV, the WebDAV server credentials are also required.
+
+**Account version requirements**: Both personal ("My Library") and group libraries are supported. Attachment files must actually be synced by Zotero to a fetchable location: either Zotero's own storage, or a WebDAV server configured in Zotero's own sync settings ("Sync attachment files using: My Library / WebDAV"). Attachments that only exist locally on the contributor's machine cannot be fetched by either mode.
+
+**Configuration parameters**:
+
+- **Name**: Customize the name in RAGFlow to identify this Zotero connection.
+- **Library Type**: Personal Library (`user`) or Group Library (`group`).
+- **Library ID**: The Zotero user ID (personal library) or group ID (group library). Found on the [Zotero API Keys page](https://www.zotero.org/settings/keys) or in the group's settings URL.
+- **Zotero API Key**: An API key with read access to the library, created on the Zotero API Keys page.
+- **Attachment Storage**: Where Zotero stores the attachment file content — Zotero Storage or WebDAV. This must match what the Zotero account is actually configured to sync to; a mismatch causes every attachment fetch to fail.
+- **WebDAV Server URL**, **Username**, **Password**: Required when Attachment Storage is WebDAV. Must match the WebDAV server configured in Zotero's own file sync settings.
+- **Remote Path**: The WebDAV sub-directory Zotero syncs attachments into. Defaults to `zotero`, matching Zotero's own default.
+- **Batch Size**: The number of documents processed per batch.
+- **Sync deleted files**: After this is enabled, attachments removed from the Zotero library are removed from the knowledge base index.
+
+`linked_file` and `linked_url` attachments are skipped: the former points at a path on the original uploader's local disk, and the latter is never stored by Zotero, so neither has bytes that can be fetched remotely. Incremental syncs filter on the attachment's `dateModified` timestamp. Attachments larger than 50 MB (`ZOTERO_CONNECTOR_ATTACHMENT_SIZE_THRESHOLD`) are skipped.
